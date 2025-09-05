@@ -1,0 +1,101 @@
+on:
+  schedule:
+    - cron: "30 */3 * * *"   # 3시간마다(UTC)
+  workflow_dispatch: {}
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare folders
+        shell: bash
+        run: |
+          mkdir -p images
+          test -f images/catalog.json || echo '{"files":[]}' > images/catalog.json
+
+      - name: Download images (per area folders)
+        shell: bash
+        run: |
+          URLS=(
+            "https://backend.wplace.live/files/s0/tiles/1741/789.png"
+            "https://backend.wplace.live/files/s0/tiles/1742/789.png"
+            "https://backend.wplace.live/files/s0/tiles/1743/789.png"
+            "https://backend.wplace.live/files/s0/tiles/1741/790.png"
+            "https://backend.wplace.live/files/s0/tiles/1742/790.png"
+            "https://backend.wplace.live/files/s0/tiles/1743/790.png"
+            "https://backend.wplace.live/files/s0/tiles/1741/791.png"
+            "https://backend.wplace.live/files/s0/tiles/1742/791.png"
+            "https://backend.wplace.live/files/s0/tiles/1743/791.png"
+          )
+          DAY="$(TZ=Asia/Seoul date +'%Y%m%d')"
+          TIM="$(TZ=Asia/Seoul date +'%H%M%S')"
+          tmpdir="$(mktemp -d)"
+
+          for u in "${URLS[@]}"; do
+            path="${u#*/tiles/}"     # 1741/789.png
+            A="${path%%/*}"          # 1741
+            tail="${path#*/}"        # 789.png
+            B="${tail%.*}"           # 789
+            A="${A//[^0-9]/}"
+            B="${B//[^0-9]/}"
+
+            # 영역별 폴더 생성
+            outdir="images/${A}"
+            mkdir -p "$outdir"
+
+            name="${DAY}_${TIM}_${A}x${B}.png"
+            out="${tmpdir}/${name}"
+
+            curl -L --fail --silent --show-error -o "$out" "$u" || true
+            if [ -s "$out" ]; then
+              mv "$out" "${outdir}/${name}"
+              echo "Saved ${outdir}/${name}"
+            else
+              echo "Download failed or empty for $u"
+            fi
+          done
+
+      - name: Update catalog.json
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const crypto = require('crypto');
+          const dir = 'images';
+          const catalogPath = path.join(dir, 'catalog.json');
+
+          let catalog = { files: [] };
+          if (fs.existsSync(catalogPath)) {
+            try { catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8') || '{"files":[]}'); }
+            catch { catalog = { files: [] }; }
+          }
+
+          function listFiles(d) {
+            let res = [];
+            for (const f of fs.readdirSync(d)) {
+              const p = path.join(d, f);
+              if (fs.statSync(p).isDirectory()) res.push(...listFiles(p));
+              else res.push(path.relative(dir, p));
+            }
+            return res;
+          }
+
+          const files = listFiles(dir).filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f));
+          const known = new Set(catalog.files.map(x => x.name));
+
+          for (const f of files) {
+            if (!known.has(f)) {
+              const p = path.join(dir, f);
+              const sha = crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex').slice(0,12);
+              catalog.files.push({ name: f, sha, ts: new Date().toISOString() });
+            }
+          }
+
+          catalog.files = catalog.files.sort((a,b)=>a.name.localeCompare(b.name)).slice(-2000);
+          fs.writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+          console.log('files in catalog:', catalog.files.length);
+          NODE
