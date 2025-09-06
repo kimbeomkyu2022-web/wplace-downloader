@@ -1,7 +1,12 @@
+name: fetch-images
+
 on:
   schedule:
-    - cron: "30 */1 * * *"   # 1시간마다(UTC)
-  workflow_dispatch: {}
+   - cron: "30 */1 * * *"   # 매 정시 (1시간마다, UTC 기준)
+  workflow_dispatch: {}    # 수동 실행 허용
+
+permissions:
+  contents: write
 
 jobs:
   fetch:
@@ -30,29 +35,27 @@ jobs:
             "https://backend.wplace.live/files/s0/tiles/1742/791.png"
             "https://backend.wplace.live/files/s0/tiles/1743/791.png"
           )
-          DAY="$(TZ=Asia/Seoul date +'%Y%m%d')"
-          TIM="$(TZ=Asia/Seoul date +'%H%M%S')"
+
+          DAYTIM="$(TZ=Asia/Seoul date +'%Y%m%d_%H%M%S')"
           tmpdir="$(mktemp -d)"
 
           for u in "${URLS[@]}"; do
-            path="${u#*/tiles/}"     # 1741/789.png
-            A="${path%%/*}"          # 1741
-            tail="${path#*/}"        # 789.png
-            B="${tail%.*}"           # 789
-            A="${A//[^0-9]/}"
-            B="${B//[^0-9]/}"
+            # tiles/ 이후 경로 (예: 1741/789.png)
+            path="${u#*/tiles/}"          # 1741/789.png
+            AREA="${path%%/*}"            # 1741
+            COORD="${path#*/}"            # 789.png
+            Y="${COORD%.*}"               # 789
 
-            # 영역별 폴더 생성
-            outdir="images/${A}"
-            mkdir -p "$outdir"
+            mkdir -p "images/${AREA}"
 
-            name="${DAY}_${TIM}_${A}x${B}.png"
+            # 파일명: 날짜시간_영역x좌표.png
+            name="${DAYTIM}_${AREA}x${Y}.png"
             out="${tmpdir}/${name}"
 
             curl -L --fail --silent --show-error -o "$out" "$u" || true
             if [ -s "$out" ]; then
-              mv "$out" "${outdir}/${name}"
-              echo "Saved ${outdir}/${name}"
+              mv "$out" "images/${AREA}/${name}"
+              echo "Saved images/${AREA}/${name}"
             else
               echo "Download failed or empty for $u"
             fi
@@ -65,8 +68,8 @@ jobs:
           const fs = require('fs');
           const path = require('path');
           const crypto = require('crypto');
-          const dir = 'images';
-          const catalogPath = path.join(dir, 'catalog.json');
+          const baseDir = 'images';
+          const catalogPath = path.join(baseDir, 'catalog.json');
 
           let catalog = { files: [] };
           if (fs.existsSync(catalogPath)) {
@@ -74,28 +77,38 @@ jobs:
             catch { catalog = { files: [] }; }
           }
 
-          function listFiles(d) {
-            let res = [];
-            for (const f of fs.readdirSync(d)) {
-              const p = path.join(d, f);
-              if (fs.statSync(p).isDirectory()) res.push(...listFiles(p));
-              else res.push(path.relative(dir, p));
-            }
-            return res;
+          function walk(dir) {
+            return fs.readdirSync(dir).flatMap(f => {
+              const p = path.join(dir, f);
+              return fs.statSync(p).isDirectory() ? walk(p) : [p];
+            });
           }
 
-          const files = listFiles(dir).filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f));
+          const files = walk(baseDir).filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f));
           const known = new Set(catalog.files.map(x => x.name));
 
           for (const f of files) {
-            if (!known.has(f)) {
-              const p = path.join(dir, f);
-              const sha = crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex').slice(0,12);
-              catalog.files.push({ name: f, sha, ts: new Date().toISOString() });
+            const rel = path.relative(baseDir, f);
+            if (!known.has(rel)) {
+              const sha = crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex').slice(0,12);
+              catalog.files.push({ name: rel, sha, ts: new Date().toISOString() });
             }
           }
 
-          catalog.files = catalog.files.sort((a,b)=>a.name.localeCompare(b.name)).slice(-2000);
+          catalog.files = catalog.files.sort((a,b)=>a.name.localeCompare(b.name)).slice(-5000);
           fs.writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
           console.log('files in catalog:', catalog.files.length);
           NODE
+
+      - name: Commit and push if changed
+        shell: bash
+        run: |
+          git config user.email "actions@users.noreply.github.com"
+          git config user.name "github-actions"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: fetch images [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi
