@@ -2,8 +2,8 @@ name: fetch-images
 
 on:
   schedule:
-   - cron: "30 */1 * * *"   # 매 정시 (1시간마다, UTC 기준)
-  workflow_dispatch: {}    # 수동 실행 허용
+    - cron: "30 */6 * * *"   # 6시간마다(UTC)
+  workflow_dispatch: {}      # 수동 실행 허용
 
 permissions:
   contents: write
@@ -21,7 +21,7 @@ jobs:
           mkdir -p images
           test -f images/catalog.json || echo '{"files":[]}' > images/catalog.json
 
-      - name: Download images (per area folders)
+           - name: Download images (per coordinate folders)
         shell: bash
         run: |
           URLS=(
@@ -46,20 +46,22 @@ jobs:
             COORD="${path#*/}"            # 789.png
             Y="${COORD%.*}"               # 789
 
-            mkdir -p "images/${AREA}"
+            folder="${AREA}x${Y}"         # ← 폴더명: 1741x789
+            mkdir -p "images/${folder}"
 
-            # 파일명: 날짜시간_영역x좌표.png
-            name="${DAYTIM}_${AREA}x${Y}.png"
+            # 파일명: 날짜시간_1741x789.png
+            name="${DAYTIM}_${folder}.png"
             out="${tmpdir}/${name}"
 
             curl -L --fail --silent --show-error -o "$out" "$u" || true
             if [ -s "$out" ]; then
-              mv "$out" "images/${AREA}/${name}"
-              echo "Saved images/${AREA}/${name}"
+              mv "$out" "images/${folder}/${name}"
+              echo "Saved images/${folder}/${name}"
             else
               echo "Download failed or empty for $u"
             fi
           done
+
 
       - name: Update catalog.json
         shell: bash
@@ -68,8 +70,8 @@ jobs:
           const fs = require('fs');
           const path = require('path');
           const crypto = require('crypto');
-          const baseDir = 'images';
-          const catalogPath = path.join(baseDir, 'catalog.json');
+          const dir = 'images';
+          const catalogPath = path.join(dir, 'catalog.json');
 
           let catalog = { files: [] };
           if (fs.existsSync(catalogPath)) {
@@ -77,25 +79,18 @@ jobs:
             catch { catalog = { files: [] }; }
           }
 
-          function walk(dir) {
-            return fs.readdirSync(dir).flatMap(f => {
-              const p = path.join(dir, f);
-              return fs.statSync(p).isDirectory() ? walk(p) : [p];
-            });
-          }
-
-          const files = walk(baseDir).filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f));
+          const files = fs.readdirSync(dir).filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f));
           const known = new Set(catalog.files.map(x => x.name));
 
           for (const f of files) {
-            const rel = path.relative(baseDir, f);
-            if (!known.has(rel)) {
-              const sha = crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex').slice(0,12);
-              catalog.files.push({ name: rel, sha, ts: new Date().toISOString() });
+            if (!known.has(f)) {
+              const p = path.join(dir, f);
+              const sha = crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex').slice(0,12);
+              catalog.files.push({ name: f, sha, ts: new Date().toISOString() });
             }
           }
 
-          catalog.files = catalog.files.sort((a,b)=>a.name.localeCompare(b.name)).slice(-5000);
+          catalog.files = catalog.files.sort((a,b)=>a.name.localeCompare(b.name)).slice(-2000);
           fs.writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
           console.log('files in catalog:', catalog.files.length);
           NODE
@@ -107,7 +102,7 @@ jobs:
           git config user.name "github-actions"
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "chore: fetch images [skip ci]"
+            git commit -m "chore: fetch images (no-conditional) [skip ci]"
             git push
           else
             echo "No changes to commit."
