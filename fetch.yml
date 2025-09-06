@@ -21,7 +21,7 @@ jobs:
           mkdir -p images
           test -f images/catalog.json || echo '{"files":[]}' > images/catalog.json
 
-      - name: Download images (robust naming)
+           - name: Download images (per coordinate folders)
         shell: bash
         run: |
           URLS=(
@@ -35,34 +35,33 @@ jobs:
             "https://backend.wplace.live/files/s0/tiles/1742/791.png"
             "https://backend.wplace.live/files/s0/tiles/1743/791.png"
           )
-          DAY="$(TZ=Asia/Seoul date +'%Y%m%d')"
-          TIM="$(TZ=Asia/Seoul date +'%H%M%S')"
+
+          DAYTIM="$(TZ=Asia/Seoul date +'%Y%m%d_%H%M%S')"
           tmpdir="$(mktemp -d)"
 
           for u in "${URLS[@]}"; do
-            # 1) /tiles/ 앞부분 제거
-            path="${u#*/tiles/}"        # 예: 1741/791.png [4][1]
-            # 2) 첫 슬래시 전까지 = A
-            A="${path%%/*}"             # 예: 1741 [4]
-            # 3) 첫 슬래시 뒤(파일명)에서 확장자 제거 = B
-            tail="${path#*/}"           # 예: 791.png [4]
-            B="${tail%.*}"              # 예: 791 [4]
+            # tiles/ 이후 경로 (예: 1741/789.png)
+            path="${u#*/tiles/}"          # 1741/789.png
+            AREA="${path%%/*}"            # 1741
+            COORD="${path#*/}"            # 789.png
+            Y="${COORD%.*}"               # 789
 
-            # 안전: 숫자만 남기기
-            A="${A//[^0-9]/}"           # 글자 제거 [4]
-            B="${B//[^0-9]/}"
+            folder="${AREA}x${Y}"         # ← 폴더명: 1741x789
+            mkdir -p "images/${folder}"
 
-            name="${DAY}_${TIM}_${A}x${B}.png"
+            # 파일명: 날짜시간_1741x789.png
+            name="${DAYTIM}_${folder}.png"
             out="${tmpdir}/${name}"
 
-            curl -L --fail --silent --show-error -o "$out" "$u" || true  # 원본 그대로 다운로드 [14]
+            curl -L --fail --silent --show-error -o "$out" "$u" || true
             if [ -s "$out" ]; then
-              mv "$out" "images/${name}"
-              echo "Saved ${name}"
+              mv "$out" "images/${folder}/${name}"
+              echo "Saved images/${folder}/${name}"
             else
               echo "Download failed or empty for $u"
             fi
           done
+
 
       - name: Update catalog.json
         shell: bash
