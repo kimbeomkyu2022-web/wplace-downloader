@@ -67,12 +67,24 @@ jobs:
         run: |
           for dir in images/*/; do
             if [ -d "$dir" ]; then
-              files=$(find "$dir" -name "*.png" | sort)
+              readarray -t png_files < <(find "$dir" -name "*.png" | sort)
               
-              if [ -n "$files" ]; then
+              if [ "${#png_files[@]}" -gt 0 ]; then
                 gif_name=$(basename "$dir")
                 output_path="images/${gif_name}.gif"
-                convert -delay 20 -loop 0 $files "$output_path"
+
+                if [ "${#png_files[@]}" -eq 1 ]; then
+                  convert -delay 300 -loop 0 -dispose Background "${png_files[0]}" "$output_path"
+                else
+                  last_file="${png_files[${#png_files[@]}-1]}"
+                  unset 'png_files[${#png_files[@]}-1]' # 마지막 파일 배열에서 제거
+
+                  convert \
+                    -delay 20 "${png_files[@]}" \
+                    -delay 300 "$last_file" \
+                    -loop 0 -dispose Background \
+                    "$output_path"
+                fi
                 echo "Generated GIF: $output_path"
               else
                 echo "No images found in $dir to create a GIF."
