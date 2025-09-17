@@ -30,12 +30,9 @@ jobs:
         shell: bash
         run: |
           URLS=(
-            "https://backend.wplace.live/files/s0/tiles/3466/3963.png"  # 프세카
-            "https://backend.wplace.live/files/s0/tiles/3653/3856.png"
-            "https://backend.wplace.live/files/s0/tiles/3637/36.png"
-            "https://backend.wplace.live/files/s0/tiles/3443/37.png"
-            "https://backend.wplace.live/files/s0/tiles/3300/47.png"
-            "https://backend.wplace.live/files/s0/tiles/3278/3866.png"
+            "https://backend.wplace.live/files/s0/tiles/1771/795.png"  # 프세카
+            "https://backend.wplace.live/files/s0/tiles/1771/796.png"
+            ""
             
 
           DAYTIM="$(TZ=Asia/Seoul date +'%Y%m%d_%H%M%S')"
